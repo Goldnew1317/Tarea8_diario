@@ -1,14 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter_sound/flutter_sound.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:intl/intl.dart';
+import 'package:file_picker/file_picker.dart';
 import 'database/database_helper.dart';
 import 'models/diary_entry.dart';
-import 'package:audioplayers/audioplayers.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -42,9 +40,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final dbHelper = DatabaseHelper.instance;
   final picker = ImagePicker();
-  FlutterSoundRecorder? audioRecorder;
-  FlutterSoundPlayer? audioPlayer;
-  late String recordedFilePath;
+  final audioPlayer = AudioPlayer();
 
   List<DiaryEntry> entries = [];
 
@@ -52,14 +48,6 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _loadEntries();
-    audioRecorder = FlutterSoundRecorder();
-    audioPlayer = FlutterSoundPlayer();
-  }
-
-  @override
-  void dispose() {
-    audioPlayer!.stopPlayer();
-    super.dispose();
   }
 
   void _loadEntries() async {
@@ -151,75 +139,43 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _pickImage(int index) async {
-    await showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Seleccionar opción'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.of(context).pop();
-                  final pickedFile =
-                      await picker.pickImage(source: ImageSource.gallery);
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
 
-                  if (pickedFile == null) return;
+    if (pickedFile == null) return;
 
-                  File imageFile = File(pickedFile.path);
+    File imageFile = File(pickedFile.path);
 
-                  String imagePath = imageFile.path;
+    String imagePath = imageFile.path;
 
-                  await dbHelper.updatePhoto(entries[index].id!, imagePath);
+    await dbHelper.updatePhoto(entries[index].id!, imagePath);
 
-                  setState(() {
-                    entries[index].photo = imagePath;
-                  });
-                },
-                child: const Text('Subir foto'),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.of(context).pop();
-                  await _startRecording(index);
-                },
-                child: const Text('Grabar nota de voz'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    setState(() {
+      entries[index].photo = imagePath;
+    });
   }
 
   Future<void> _startRecording(int index) async {
-    Directory appDir = await getApplicationDocumentsDirectory();
-    String audioPath =
-        '${appDir.path}/recording_${DateTime.now().microsecondsSinceEpoch}.aac';
+    final pickedFile = await FilePicker.platform.pickFiles(
+      type: FileType.audio,
+      allowMultiple: false,
+    );
 
-    await audioRecorder!.openAudioSession();
-    await audioRecorder!.startRecorder(toFile: audioPath, codec: Codec.aacADTS);
+    if (pickedFile == null || pickedFile.files.isEmpty) return;
 
-    recordedFilePath = audioPath;
-  }
+    final PlatformFile audioFile = pickedFile.files.first;
 
-  Future<void> _stopRecording(int index) async {
-    await audioRecorder!.stopRecorder();
+    String audioPath = audioFile.path!;
 
-    await dbHelper.updateAudio(entries[index].id!, recordedFilePath);
+    await dbHelper.updateAudio(entries[index].id!, audioPath);
 
-    entries[index].audio = recordedFilePath;
-
-    setState(() {});
+    setState(() {
+      entries[index].audio = audioPath;
+    });
   }
 
   Future<void> _playAudio(int index) async {
     if (entries[index].audio != null) {
-      await audioPlayer!.startPlayer(
-        fromURI: entries[index].audio!,
-        codec: Codec.aacADTS,
-      );
+      await audioPlayer.play(entries[index].audio!, isLocal: true);
     }
   }
 
@@ -266,13 +222,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.mic),
-                  onPressed: () {
-                    if (audioRecorder!.isStopped) {
-                      _startRecording(index);
-                    } else {
-                      _stopRecording(index);
-                    }
-                  },
+                  onPressed: () => _startRecording(index),
                 ),
                 IconButton(
                   icon: const Icon(Icons.play_circle_filled),
@@ -309,7 +259,7 @@ class _HomePageState extends State<HomePage> {
 
 class EntryDetailsPage extends StatelessWidget {
   final DiaryEntry entry;
-  final AudioPlayer audioPlayer = AudioPlayer();
+  final audioPlayer = AudioPlayer();
 
   EntryDetailsPage({Key? key, required this.entry}) : super(key: key);
 
